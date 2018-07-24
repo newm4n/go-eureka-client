@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-func TestDiscoveryServer_FetchInstance(t *testing.T) {
-	ds := NewDiscoveryServer("localhost", 8761)
+func TestDiscoveryClient_FetchInstance(t *testing.T) {
+	ds := NewDiscoveryClient("localhost", 8761)
 	resp, err := ds.FetchApplication("CONFIG")
 	if err != nil {
 		t.Fatal(err)
@@ -16,8 +16,8 @@ func TestDiscoveryServer_FetchInstance(t *testing.T) {
 	fmt.Printf("Instance : %s", resp.Application.Instances[0].String())
 }
 
-func TestDiscoveryServer_FetchInstances(t *testing.T) {
-	ds := NewDiscoveryServer("localhost", 8761)
+func TestDiscoveryClient_FetchInstances(t *testing.T) {
+	ds := NewDiscoveryClient("localhost", 8761)
 	resp, err := ds.FetchAllApplications()
 	if err != nil {
 		t.Fatal(err)
@@ -27,7 +27,7 @@ func TestDiscoveryServer_FetchInstances(t *testing.T) {
 
 func TestInstance_Register(t *testing.T) {
 	instance := NewInstance("cemungudh", "cemungudh", "10.10.10.2", 1234, 4321)
-	ds := NewDiscoveryServer("localhost", 8761)
+	ds := NewDiscoveryClient("localhost", 8761)
 	log.Print("Now Registering")
 	if err := instance.Register(ds); err != nil {
 		t.Fatalf("Failed register %s", err)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -65,7 +66,7 @@ func (app *Application) NextInstance() *Instance {
 type Instance struct {
 	mutex                         sync.Mutex        `json:"-"`
 	client                        http.Client       `json:"-"`
-	discoveryServer               *DiscoveryServer  `json:"-"`
+	discoveryClient               *DiscoveryClient  `json:"-"`
 	InstanceId                    string            `json:"instanceId,omitempty"`
 	HostName                      string            `json:"hostName"`
 	App                           string            `json:"app"`
@@ -121,10 +122,10 @@ func NewInstance(app, hostname, ip string, port, securePort int) *Instance {
 	return i
 }
 
-func (i *Instance) Register(ds *DiscoveryServer) error {
-	i.discoveryServer = ds
+func (i *Instance) Register(ds *DiscoveryClient) error {
+	i.discoveryClient = ds
 	if err := i.sendStatus(ds, STATUS_STARTING); err != nil {
-		i.discoveryServer = nil
+		i.discoveryClient = nil
 		return err
 	}
 	go i.emitHeartBeat()
@@ -132,33 +133,33 @@ func (i *Instance) Register(ds *DiscoveryServer) error {
 }
 
 func (i *Instance) NowUp() error {
-	return i.sendStatus(i.discoveryServer, STATUS_UP)
+	return i.sendStatus(i.discoveryClient, STATUS_UP)
 }
 
 func (i *Instance) NowPause() error {
-	return i.sendStatus(i.discoveryServer, STATUS_OUT_OF_SERVICE)
+	return i.sendStatus(i.discoveryClient, STATUS_OUT_OF_SERVICE)
 }
 
 func (i *Instance) NowDown() error {
-	return i.sendStatus(i.discoveryServer, STATUS_DOWN)
+	return i.sendStatus(i.discoveryClient, STATUS_DOWN)
 }
 
 func (i *Instance) NowStarting() error {
-	return i.sendStatus(i.discoveryServer, STATUS_STARTING)
+	return i.sendStatus(i.discoveryClient, STATUS_STARTING)
 }
 
 func (i *Instance) NowStall() error {
-	return i.sendStatus(i.discoveryServer, STATUS_UNKNOWN)
+	return i.sendStatus(i.discoveryClient, STATUS_UNKNOWN)
 }
 
 func (i *Instance) UnRegister() error {
 	log.Printf("Eureka Shutting Down (%s)", i.InstanceId)
-	return i.sendInstanceUpdate(i.discoveryServer, "DELETE")
+	return i.sendInstanceUpdate(i.discoveryClient, "DELETE")
 }
 
 func (i *Instance) emitHeartBeat() {
 	for {
-		if i.discoveryServer != nil {
+		if i.discoveryClient != nil {
 			time.Sleep(10 * time.Second)
 			i.HeartBeat()
 		} else {
@@ -169,17 +170,17 @@ func (i *Instance) emitHeartBeat() {
 
 func (i *Instance) HeartBeat() error {
 	log.Printf("Eureka Heartbeating (%s - %s)", i.InstanceId, i.Status)
-	return i.sendInstanceUpdate(i.discoveryServer, "PUT")
+	return i.sendInstanceUpdate(i.discoveryClient, "PUT")
 }
 
-func (i *Instance) sendInstanceUpdate(ds *DiscoveryServer, method string) error {
+func (i *Instance) sendInstanceUpdate(ds *DiscoveryClient, method string) error {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 	if ds == nil {
 		return errors.New("this instance have not been registered")
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%d/eureka/apps/%s/%s", i.discoveryServer.Host, i.discoveryServer.Port, i.App, i.InstanceId), nil)
+	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%d/eureka/apps/%s/%s", i.discoveryClient.Host, i.discoveryClient.Port, i.App, i.InstanceId), nil)
 	if err != nil {
 		return err
 	}
@@ -198,7 +199,7 @@ func (i *Instance) sendInstanceUpdate(ds *DiscoveryServer, method string) error 
 	return nil
 }
 
-func (i *Instance) sendStatus(ds *DiscoveryServer, status string) error {
+func (i *Instance) sendStatus(ds *DiscoveryClient, status string) error {
 	i.mutex.Lock()
 	defer i.mutex.Unlock()
 	if ds == nil {
@@ -260,37 +261,37 @@ type LeaseInfo struct {
 	ServiceUpTimestamp    int64 `json:"serviceUpTimestamp,omitempty"`
 }
 
-type DiscoveryServer struct {
+type DiscoveryClient struct {
 	Host string
 	Port int
 }
 
-func NewDiscoveryServer(host string, port int) *DiscoveryServer {
-	return &DiscoveryServer{
+func NewDiscoveryClient(host string, port int) *DiscoveryClient {
+	return &DiscoveryClient{
 		Host: host,
 		Port: port,
 	}
 }
 
-func (ds *DiscoveryServer) FetchApplication(name string) (*EurekaResponse, error) {
+func (ds *DiscoveryClient) FetchApplication(name string) (*EurekaResponse, error) {
 	url := fmt.Sprintf("http://%s:%d/eureka/apps/%s", ds.Host, ds.Port, name)
 	log.Println(url)
 	return ds.fetch(url)
 }
 
-func (ds *DiscoveryServer) FetchAllApplications() (*EurekaResponse, error) {
+func (ds *DiscoveryClient) FetchAllApplications() (*EurekaResponse, error) {
 	url := fmt.Sprintf("http://%s:%d/eureka/apps", ds.Host, ds.Port)
 	log.Println(url)
 	return ds.fetch(url)
 }
 
-func (ds *DiscoveryServer) FetchInstance(app string, instanceId string) (*EurekaResponse, error) {
+func (ds *DiscoveryClient) FetchInstance(app string, instanceId string) (*EurekaResponse, error) {
 	url := fmt.Sprintf("http://%s:%d/eureka/apps/%s/%s", ds.Host, ds.Port, app, instanceId)
 	log.Println(url)
 	return ds.fetch(url)
 }
 
-func (ds *DiscoveryServer) fetch(url string) (*EurekaResponse, error) {
+func (ds *DiscoveryClient) fetch(url string) (*EurekaResponse, error) {
 	client := &http.Client{}
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -314,4 +315,24 @@ func (ds *DiscoveryServer) fetch(url string) (*EurekaResponse, error) {
 		return nil, err
 	}
 	return eurekaResponse, nil
+}
+
+func GetLocalIP() ([]string, error) {
+	ips := make([]string, 0)
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil, err
+	}
+	for _, address := range addrs {
+		if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				fmt.Println(ipnet.IP.String())
+				ips = append(ips, ipnet.IP.String())
+			}
+		}
+	}
+	if len(ips) == 0 {
+		return nil, errors.New("this host have no non-loop-back network device")
+	}
+	return ips, nil
 }
