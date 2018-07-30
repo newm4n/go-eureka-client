@@ -165,7 +165,10 @@ func (i *Instance) UnRegister() error {
 func (i *Instance) emitHeartBeat() {
 	for {
 		if i.discoveryClient != nil {
-			i.HeartBeat()
+			err := i.HeartBeat()
+			if err != nil {
+				log.Printf("Eureka heartbeating failure : %s", err)
+			}
 			time.Sleep(HEART_BEAT_RATE)
 		} else {
 			break
