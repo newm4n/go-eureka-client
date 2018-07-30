@@ -9,6 +9,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +24,8 @@ const (
 
 	DATACENTER_OWN    = "MyOwn"
 	DATACENTER_AMAZON = "Amazon"
+
+	HEART_BEAT_RATE = 3 * time.Second
 )
 
 type EurekaResponse struct {
@@ -154,18 +157,21 @@ func (i *Instance) NowStall() error {
 
 func (i *Instance) UnRegister() error {
 	log.Printf("Eureka Shutting Down (%s)", i.InstanceId)
-	return i.sendInstanceUpdate(i.discoveryClient, "DELETE")
+	err := i.sendInstanceUpdate(i.discoveryClient, "DELETE")
+	i.discoveryClient = nil
+	return err
 }
 
 func (i *Instance) emitHeartBeat() {
 	for {
 		if i.discoveryClient != nil {
-			time.Sleep(10 * time.Second)
 			i.HeartBeat()
+			time.Sleep(HEART_BEAT_RATE)
 		} else {
 			break
 		}
 	}
+	os.Exit(0)
 }
 
 func (i *Instance) HeartBeat() error {
