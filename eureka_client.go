@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/newm4n/go-utility"
 	"io/ioutil"
 	"log"
 	"net"
@@ -68,7 +69,7 @@ func (app *Application) NextInstance() *Instance {
 
 type Instance struct {
 	mutex                         sync.Mutex        `json:"-"`
-	client                        http.Client       `json:"-"`
+	client                        *http.Client      `json:"-"`
 	discoveryClient               *DiscoveryClient  `json:"-"`
 	InstanceId                    string            `json:"instanceId,omitempty"`
 	HostName                      string            `json:"hostName"`
@@ -115,6 +116,7 @@ func NewInstance(app, hostname, ip string, port, securePort int) *Instance {
 		VipAddress:                    app,
 		SecureVipAddress:              app,
 		IsCoordinatingDiscoveryServer: "false",
+		client: go_utility.GetDefaultHttpClient(true),
 	}
 	if port == 0 {
 		i.Port.Enabled = "false"
@@ -189,7 +191,7 @@ func (i *Instance) sendInstanceUpdate(ds *DiscoveryClient, method string) error 
 		return errors.New("this instance have not been registered")
 	}
 
-	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%d/eureka/apps/%s/%s", i.discoveryClient.Host, i.discoveryClient.Port, i.App, i.InstanceId), nil)
+	req, err := http.NewRequest(method, fmt.Sprintf("http://%s:%s@%s:%d/eureka/apps/%s/%s", i.discoveryClient.Username, i.discoveryClient.Password, i.discoveryClient.Host, i.discoveryClient.Port, i.App, i.InstanceId), nil)
 	if err != nil {
 		return err
 	}
@@ -226,7 +228,7 @@ func (i *Instance) sendStatus(ds *DiscoveryClient, status string) error {
 
 	//log.Print(string(reqBytes))
 
-	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s:%d/eureka/apps/%s", ds.Host, ds.Port, i.App), bytes.NewBuffer(reqBytes))
+	req, err := http.NewRequest("POST", fmt.Sprintf("http://%s:%s@%s:%d/eureka/apps/%s", ds.Username, ds.Password, ds.Host, ds.Port, i.App), bytes.NewBuffer(reqBytes))
 	if err != nil {
 		return err
 	}
@@ -271,37 +273,41 @@ type LeaseInfo struct {
 }
 
 type DiscoveryClient struct {
-	Host string
-	Port int
+	Host     string
+	Port     int
+	Username string
+	Password string
 }
 
-func NewDiscoveryClient(host string, port int) *DiscoveryClient {
+func NewDiscoveryClient(host string, port int, username, password string) *DiscoveryClient {
 	return &DiscoveryClient{
-		Host: host,
-		Port: port,
+		Host:     host,
+		Port:     port,
+		Username: username,
+		Password: password,
 	}
 }
 
 func (ds *DiscoveryClient) FetchApplication(name string) (*EurekaResponse, error) {
-	url := fmt.Sprintf("http://%s:%d/eureka/apps/%s", ds.Host, ds.Port, name)
+	url := fmt.Sprintf("http://%s:%s@%s:%d/eureka/apps/%s", ds.Username, ds.Password, ds.Host, ds.Port, name)
 	log.Println(url)
 	return ds.fetch(url)
 }
 
 func (ds *DiscoveryClient) FetchAllApplications() (*EurekaResponse, error) {
-	url := fmt.Sprintf("http://%s:%d/eureka/apps", ds.Host, ds.Port)
+	url := fmt.Sprintf("http://%s:%s@%s:%d/eureka/apps", ds.Username, ds.Password, ds.Host, ds.Port)
 	log.Println(url)
 	return ds.fetch(url)
 }
 
 func (ds *DiscoveryClient) FetchInstance(app string, instanceId string) (*EurekaResponse, error) {
-	url := fmt.Sprintf("http://%s:%d/eureka/apps/%s/%s", ds.Host, ds.Port, app, instanceId)
+	url := fmt.Sprintf("http://%s:%s@%s:%d/eureka/apps/%s/%s", ds.Username, ds.Password, ds.Host, ds.Port, app, instanceId)
 	log.Println(url)
 	return ds.fetch(url)
 }
 
 func (ds *DiscoveryClient) fetch(url string) (*EurekaResponse, error) {
-	client := &http.Client{}
+	client := go_utility.GetDefaultHttpClient(true)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
